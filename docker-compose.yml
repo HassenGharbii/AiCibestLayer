@@ -31,6 +31,12 @@ services:
     # Host networking so this container can reach tx2 on the Jetson's own
     # localhost:8000 without extra Docker networking setup.
     network_mode: host
+    # Explicit, generous PID/thread limit — on some Docker configs the
+    # default per-container limit is low enough that uvicorn + psycopg2's
+    # pool + paho-mqtt's network thread collectively exceed it, causing
+    # "RuntimeError: can't start new thread" even though the host itself
+    # has plenty of headroom.
+    pids_limit: 512
     depends_on:
       db:
         condition: service_healthy
