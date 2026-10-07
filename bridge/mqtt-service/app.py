@@ -41,7 +41,7 @@ MQTT_TOPIC = os.environ.get("MQTT_TOPIC", "train/+/event/#")
 
 # --- tx2 (passenger counting) ----------------------------------------------
 TX2_URL = os.environ.get("TX2_URL", "http://localhost:8000").rstrip("/")
-TX2_INSTANCE_ID = os.environ.get("TX2_INSTANCE_ID", "")
+INSTANCE_SYNC_INTERVAL_SECONDS = 15.0  # catches instances created mid-session
 
 # --- Postgres ----------------------------------------------------------------
 PG_HOST = os.environ.get("POSTGRES_HOST", "db")
@@ -159,17 +159,43 @@ def save_alarm(train_id, payload):
 
 
 # --- tx2 integration ----------------------------------------------------------
+# Applies to ALL of tx2's instances (cameras/lines), not a single hardcoded
+# one — so instances created later (via tx2's own UI) get picked up
+# automatically, both immediately on the next train-state change and via
+# the periodic sync below (for ones created while the state hasn't changed).
 
-def call_tx2_trigger(active):
-    if not TX2_INSTANCE_ID:
-        return
-    action = "start" if active else "stop"
-    url = TX2_URL + "/api/instances/" + TX2_INSTANCE_ID + "/" + action
+def get_tx2_instances():
     try:
-        requests.post(url, timeout=5)
-        log.info("tx2 counting %s (active=%s)", action.upper(), active)
+        resp = requests.get(TX2_URL + "/api/instances", timeout=5)
+        resp.raise_for_status()
+        return resp.json()
     except requests.RequestException as exc:
-        log.warning("tx2 trigger call failed: %s", exc)
+        log.warning("Failed to fetch tx2 instances: %s", exc)
+        return []
+
+
+def sync_all_instances(active):
+    instances = get_tx2_instances()
+    action = "start" if active else "stop"
+    for inst in instances:
+        if bool(inst.get("counting")) == active:
+            continue  # already in the desired state, skip
+        inst_id = inst.get("id")
+        url = TX2_URL + "/api/instances/" + inst_id + "/" + action
+        try:
+            requests.post(url, timeout=5)
+            log.info("tx2 instance %s: %s (active=%s)", inst_id, action.upper(), active)
+        except requests.RequestException as exc:
+            log.warning("tx2 trigger call failed for instance %s: %s", inst_id, exc)
+
+
+def periodic_instance_sync_loop():
+    while True:
+        time.sleep(INSTANCE_SYNC_INTERVAL_SECONDS)
+        with state_lock:
+            active = state.get("counting_active")
+        if active is not None:
+            sync_all_instances(active)
 
 
 def push_train_state_to_tx2():
@@ -215,7 +241,7 @@ def update_trigger_and_persist(train_id):
 
     if active != last_trigger["value"]:
         last_trigger["value"] = active
-        call_tx2_trigger(active)
+        sync_all_instances(active)
 
     now = time.time()
     if now - last_history_save["value"] >= HISTORY_SAVE_INTERVAL_SECONDS:
@@ -320,6 +346,8 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 def startup():
     init_db()
     start_mqtt_client()
+    t = threading.Thread(target=periodic_instance_sync_loop, daemon=True)
+    t.start()
 
 
 @app.get("/state")
@@ -352,7 +380,13 @@ def get_alarms(limit: int = 100):
 def get_health():
     with state_lock:
         has_data = bool(state)
-    return {"status": "ok", "mqtt_connected": has_data, "tx2_instance_configured": bool(TX2_INSTANCE_ID)}
+    instances = get_tx2_instances()
+    return {
+        "status": "ok",
+        "mqtt_connected": has_data,
+        "tx2_instances_count": len(instances),
+        "tx2_instances": [i.get("id") for i in instances],
+    }
 
 
 if __name__ == "__main__":

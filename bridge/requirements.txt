@@ -4,6 +4,3 @@
 pycomm3==1.2.14
 scapy==2.5.0
 requests==2.31.0
-
-# mqtt_bridge.py only (production MDR-6 path, not needed for bridge.py/the bench simulator)
-paho-mqtt==1.6.1

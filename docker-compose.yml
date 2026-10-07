@@ -47,7 +47,6 @@ services:
       MQTT_CAFILE: ${MQTT_CAFILE:-}
       MQTT_INSECURE: ${MQTT_INSECURE:-true}
       TX2_URL: ${TX2_URL:-http://localhost:8000}
-      TX2_INSTANCE_ID: ${TX2_INSTANCE_ID:-}
     volumes:
       # Only needed if MQTT_INSECURE=false and real cert verification is wanted.
       - ${MQTT_CAFILE_HOST:-/dev/null}:/certs/ca.crt:ro
