@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Axivis RT — CDGX Counter Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header>
+    <h1>Axivis RT — Line-Crossing Counter</h1>
+    <div id="train-badge" class="badge badge-unknown">Train state: unknown</div>
+  </header>
+
+  <section id="train-panel" class="card">
+    <h2>Train state</h2>
+    <div class="grid" id="train-fields">
+      <div>Station <strong id="tf-station">—</strong></div>
+      <div>Destination <strong id="tf-destination">—</strong></div>
+      <div>Trip <strong id="tf-trip">—</strong></div>
+      <div>Speed <strong id="tf-speed">—</strong></div>
+      <div>Cab active <strong id="tf-cab">—</strong></div>
+      <div>Position <strong id="tf-pos">—</strong></div>
+      <div>In station <strong id="tf-in-station">—</strong></div>
+      <div>Updated <strong id="tf-updated">—</strong></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>New instance</h2>
+    <form id="create-form">
+      <label>Name <input name="name" required value="Line 1" /></label>
+      <label>Source type
+        <select name="source_type">
+          <option value="rtsp">RTSP</option>
+          <option value="file">Uploaded file</option>
+        </select>
+      </label>
+      <label>Source URI <input name="source_uri" placeholder="rtsp://... or file_id" required /></label>
+      <label>Config type
+        <select name="config_type">
+          <option value="line_crossing">Line crossing</option>
+          <option value="zone_occupancy">Zone occupancy</option>
+          <option value="vehicle_counting">Vehicle counting</option>
+        </select>
+      </label>
+      <fieldset id="line-fields">
+        <label>P1 x,y <input name="p1" value="0,240" /></label>
+        <label>P2 x,y <input name="p2" value="640,240" /></label>
+      </fieldset>
+      <label>Frame width <input name="frame_width" type="number" value="640" /></label>
+      <label>Frame height <input name="frame_height" type="number" value="480" /></label>
+      <button type="submit">Create</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>Instances</h2>
+    <table id="instances-table">
+      <thead>
+        <tr>
+          <th>Name</th><th>Status</th><th>Counting</th>
+          <th>In</th><th>Out</th><th>Current</th><th>Total</th>
+          <th>Stream</th><th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="instances-body"></tbody>
+    </table>
+  </section>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,40 @@
+# Jetson TX2 / JetPack 4.6 / Python 3.6 — everything pinned to the last
+# version each package still supports on Python 3.6, verified against PyPI.
+# This is a SEPARATE, parallel backend from ../backend — do not mix venvs.
+
+fastapi==0.83.0
+starlette==0.19.1
+pydantic==1.9.2
+uvicorn==0.16.0
+typing_extensions==4.1.1
+numpy==1.19.5
+python-multipart==0.0.5
+psycopg2-binary==2.8.6  # last version with a working cp36 wheel
+
+# yolox's own runtime deps for just the model-construction path we use
+# (yolox.exp.get_exp / exp.get_model()). We deliberately do NOT import
+# yolox.data or yolox.utils.postprocess (which pull in pycocotools, tqdm,
+# tensorboard, scikit-image, and torchvision) — detector.py implements
+# preprocessing and NMS itself instead, so none of those are needed here.
+loguru
+thop
+tabulate
+
+# opencv: do NOT pip install — no working aarch64/py3.6 wheel for a recent
+# enough version. Use the apt-provided build instead:
+#   sudo apt-get install -y python3-opencv
+# and create the venv with --system-site-packages so it's importable.
+
+# torch: NVIDIA's official Jetson wheel for JetPack 4.6.1 / Python 3.6 /
+# CUDA 10.2 (same CUDA version as 4.6, so this should be ABI-compatible —
+# not yet confirmed on real hardware):
+#   pip install --no-cache https://developer.download.nvidia.com/compute/redist/jp/v461/pytorch/torch-1.11.0a0+17540c5+nv22.01-cp36-cp36m-linux_aarch64.whl
+#
+# torchvision: NVIDIA does not publish a wheel for this combo, and building
+# it from source is slow/heavy for what we need. We don't install it —
+# detector.py implements decode/NMS in plain numpy instead of importing
+# yolox's postprocess() (which hard-imports torchvision).
+
+# yolox itself: same onnx==1.8.1 pin problem as the main backend — install
+# with --no-deps (its real runtime deps are the loguru/thop/tabulate above):
+#   pip install --no-deps yolox

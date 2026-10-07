@@ -1,0 +1,9 @@
+# Runs on whichever machine can reach both the simulator's target IP
+# (172.24.1.53) and the tx2 FastAPI box. Separate from tx2/requirements.txt —
+# this does NOT need to run on the Jetson.
+pycomm3==1.2.14
+scapy==2.5.0
+requests==2.31.0
+
+# mqtt_bridge.py only (production MDR-6 path, not needed for bridge.py/the bench simulator)
+paho-mqtt==1.6.1

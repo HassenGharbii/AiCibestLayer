@@ -1,0 +1,17 @@
+# Postgres only — the tx2 FastAPI app itself runs directly on the Jetson
+# (CUDA/TX2 arch needs the host's torch/opencv, not worth containerizing here).
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-axivis}
+      POSTGRES_USER: ${POSTGRES_USER:-axivis}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-axivis}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+volumes:
+  db_data:
