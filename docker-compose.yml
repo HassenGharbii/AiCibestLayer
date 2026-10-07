@@ -1,0 +1,56 @@
+# Single compose file for the AiCibestLayer repo. tx2 itself (GPU-dependent:
+# torch/opencv compiled for CUDA) stays on bare metal (venv/systemd on the
+# Jetson) — not worth containerizing here. Everything that CAN run in a
+# container does: the shared Postgres and the mqtt-service.
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: aicibestlayer_db
+    restart: always
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: ${POSTGRES_SUPERUSER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD:-postgres}
+    # Published to the host because mqtt-service (below) uses host
+    # networking to reach tx2 on bare metal, and reaches this via localhost.
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./db-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_SUPERUSER:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mqtt-service:
+    build: ./bridge/mqtt-service
+    container_name: mqtt_bridge_service
+    restart: always
+    # Host networking so this container can reach tx2 on the Jetson's own
+    # localhost:8000 without extra Docker networking setup.
+    network_mode: host
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_DB: mqtt_bridge
+      POSTGRES_USER: mqtt_bridge
+      POSTGRES_PASSWORD: mqtt_bridge
+      MQTT_HOST: ${MQTT_HOST:-10.136.115.96}
+      MQTT_PORT: ${MQTT_PORT:-8883}
+      MQTT_USERNAME: ${MQTT_USERNAME:-ia_server}
+      MQTT_PASSWORD: ${MQTT_PASSWORD:-ia_server}
+      MQTT_CAFILE: ${MQTT_CAFILE:-}
+      MQTT_INSECURE: ${MQTT_INSECURE:-true}
+      TX2_URL: ${TX2_URL:-http://localhost:8000}
+      TX2_INSTANCE_ID: ${TX2_INSTANCE_ID:-}
+    volumes:
+      # Only needed if MQTT_INSECURE=false and real cert verification is wanted.
+      - ${MQTT_CAFILE_HOST:-/dev/null}:/certs/ca.crt:ro
+
+volumes:
+  db_data:
