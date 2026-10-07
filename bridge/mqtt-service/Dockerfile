@@ -1,11 +1,15 @@
-FROM python:3.11-slim
+# bullseye, not the (now default) bookworm: bookworm's glibc uses clone3()
+# for thread creation, which the Jetson's old L4T kernel (~4.9) doesn't
+# support. Docker >=20.10.9 has a seccomp rule that blocks clone3 so glibc
+# falls back to clone() cleanly — this Jetson is on 20.10.7, just under that
+# fix, so clone3 reaches the kernel and fails hard ("can't start new
+# thread") instead of falling back. bullseye's older glibc never tries
+# clone3 in the first place, sidestepping the issue entirely.
+FROM python:3.11-slim-bullseye
 
 WORKDIR /app
 
 COPY requirements.txt .
-# --progress-bar off: pip's default rich-based progress bar spawns a
-# background refresh thread, which fails with "can't start new thread" on
-# resource-constrained boards (e.g. a Jetson low on RAM/process headroom).
 RUN pip install --no-cache-dir --progress-bar off -r requirements.txt
 
 COPY app.py init.sql ./
