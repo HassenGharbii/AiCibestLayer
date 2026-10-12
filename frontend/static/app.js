@@ -8,7 +8,7 @@ const MAX_ZONE_POINTS = 12;
 // wired up to a UI before.
 
 const canvas = document.getElementById("preview-canvas");
-const ctx = canvas.getContext("2d");
+const ctx = canvas ? canvas.getContext("2d") : null;
 const previewImg = new Image();
 let previewPoints = []; // real pixel coords, in source-frame space
 let previewReady = false;
@@ -22,35 +22,39 @@ const fileUploadRow = document.getElementById("file-upload-row");
 const sourceUriInput = document.getElementsByName("source_uri")[0];
 
 function toggleSourceUriMode() {
+  if (!sourceTypeSelect || !fileUploadRow || !sourceUriInput) return;
   const isFile = sourceTypeSelect.value === "file";
   fileUploadRow.style.display = isFile ? "flex" : "none";
   sourceUriInput.readOnly = isFile;
   sourceUriInput.placeholder = isFile ? "Upload a file below to fill this in…" : "rtsp://...";
   if (isFile) sourceUriInput.value = "";
 }
-sourceTypeSelect.addEventListener("change", toggleSourceUriMode);
+if (sourceTypeSelect) sourceTypeSelect.addEventListener("change", toggleSourceUriMode);
 toggleSourceUriMode();
 
-document.getElementById("upload-btn").addEventListener("click", async () => {
-  const fileInput = document.getElementById("file-input");
-  const hint = document.getElementById("upload-hint");
-  if (!fileInput.files.length) {
-    alert("Choose a file first.");
-    return;
-  }
-  const body = new FormData();
-  body.append("file", fileInput.files[0]);
-  hint.textContent = "Uploading…";
-  try {
-    const res = await fetch("/api/sources/upload", { method: "POST", body });
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
-    sourceUriInput.value = data.file_id;
-    hint.textContent = `Uploaded: ${data.filename}`;
-  } catch (err) {
-    hint.textContent = `Upload failed: ${err.message}`;
-  }
-});
+const uploadBtn = document.getElementById("upload-btn");
+if (uploadBtn) {
+  uploadBtn.addEventListener("click", async () => {
+    const fileInput = document.getElementById("file-input");
+    const hint = document.getElementById("upload-hint");
+    if (!fileInput.files.length) {
+      alert("Choose a file first.");
+      return;
+    }
+    const body = new FormData();
+    body.append("file", fileInput.files[0]);
+    hint.textContent = "Uploading…";
+    try {
+      const res = await fetch("/api/sources/upload", { method: "POST", body });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      sourceUriInput.value = data.file_id;
+      hint.textContent = `Uploaded: ${data.filename}`;
+    } catch (err) {
+      hint.textContent = `Upload failed: ${err.message}`;
+    }
+  });
+}
 
 function point(pair) {
   const [x, y] = pair.split(",").map((v) => parseFloat(v.trim()));
@@ -61,8 +65,51 @@ function pointsLabel(p) {
   return `${Math.round(p.x)},${Math.round(p.y)}`;
 }
 
+function isLineType(type) {
+  return type === "line_crossing" || type === "vehicle_counting";
+}
+
+// Matches tracker.py's _side()/_crossing_direction(): a point with
+// _side(point, p1, p2) < 0 is classified "in" when crossed into. The arrow
+// points toward that "in" half-plane so direction is visible before saving,
+// instead of discovering it's backwards after the instance is already live.
+function drawDirectionArrow(p1, p2) {
+  const dx = p2.x - p1.x;
+  const dy = p2.y - p1.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const nx = dy / len; // perpendicular, pointing to the "in" (_side < 0) side
+  const ny = -dx / len;
+  const arrowLen = Math.max(28, canvas.width / 12);
+  const mx = (p1.x + p2.x) / 2;
+  const my = (p1.y + p2.y) / 2;
+  const tipX = mx + nx * arrowLen;
+  const tipY = my + ny * arrowLen;
+
+  ctx.save();
+  ctx.strokeStyle = "#2fd35a";
+  ctx.fillStyle = "#2fd35a";
+  ctx.lineWidth = Math.max(2, canvas.width / 280);
+  ctx.beginPath();
+  ctx.moveTo(mx, my);
+  ctx.lineTo(tipX, tipY);
+  ctx.stroke();
+
+  const headLen = arrowLen * 0.35;
+  const angle = Math.atan2(tipY - my, tipX - mx);
+  ctx.beginPath();
+  ctx.moveTo(tipX, tipY);
+  ctx.lineTo(tipX - headLen * Math.cos(angle - Math.PI / 6), tipY - headLen * Math.sin(angle - Math.PI / 6));
+  ctx.lineTo(tipX - headLen * Math.cos(angle + Math.PI / 6), tipY - headLen * Math.sin(angle + Math.PI / 6));
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.font = `${Math.max(12, canvas.width / 40)}px sans-serif`;
+  ctx.fillText("IN", tipX + nx * 6, tipY + ny * 6);
+  ctx.restore();
+}
+
 function redrawPreview() {
-  if (!previewReady) return;
+  if (!previewReady || !ctx) return;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.drawImage(previewImg, 0, 0, canvas.width, canvas.height);
 
@@ -86,13 +133,20 @@ function redrawPreview() {
     ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
     ctx.fill();
   });
+
+  if (isLineType(type) && previewPoints.length === 2) {
+    drawDirectionArrow(previewPoints[0], previewPoints[1]);
+  }
 }
 
 function updatePointsHint() {
   const type = document.getElementsByName("config_type")[0].value;
   const hint = document.getElementById("points-hint");
   const clearBtn = document.getElementById("clear-points-btn");
-  clearBtn.style.display = previewPoints.length ? "inline-block" : "none";
+  const flipBtn = document.getElementById("flip-direction-btn");
+  if (clearBtn) clearBtn.style.display = previewPoints.length ? "inline-block" : "none";
+  if (flipBtn) flipBtn.style.display = isLineType(type) && previewPoints.length === 2 ? "inline-block" : "none";
+  if (!hint) return;
   if (!previewReady) {
     hint.textContent = "";
     return;
@@ -104,7 +158,7 @@ function updatePointsHint() {
   } else {
     hint.textContent = previewPoints.length < 2
       ? "Click the two endpoints of the counting line."
-      : "Line set — click again to redraw it from scratch.";
+      : "Line set — green arrow shows the \"in\" direction. Use Flip if it's backwards.";
   }
 }
 
@@ -117,71 +171,92 @@ function syncManualFieldsFromPoints() {
   }
 }
 
-canvas.addEventListener("click", (e) => {
-  if (!previewReady) return;
-  const rect = canvas.getBoundingClientRect();
-  const x = ((e.clientX - rect.left) / rect.width) * canvas.width;
-  const y = ((e.clientY - rect.top) / rect.height) * canvas.height;
-  const type = document.getElementsByName("config_type")[0].value;
+if (canvas) {
+  canvas.addEventListener("click", (e) => {
+    if (!previewReady) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * canvas.width;
+    const y = ((e.clientY - rect.top) / rect.height) * canvas.height;
+    const type = document.getElementsByName("config_type")[0].value;
 
-  if (type === "zone_occupancy") {
-    if (previewPoints.length >= MAX_ZONE_POINTS) previewPoints = [];
-    previewPoints.push({ x, y });
-  } else {
-    // Line types only ever need 2 points — a 3rd click starts a fresh line.
-    if (previewPoints.length >= 2) previewPoints = [];
-    previewPoints.push({ x, y });
-  }
-  syncManualFieldsFromPoints();
-  redrawPreview();
-  updatePointsHint();
-});
+    if (type === "zone_occupancy") {
+      if (previewPoints.length >= MAX_ZONE_POINTS) previewPoints = [];
+      previewPoints.push({ x, y });
+    } else {
+      // Line types only ever need 2 points — a 3rd click starts a fresh line.
+      if (previewPoints.length >= 2) previewPoints = [];
+      previewPoints.push({ x, y });
+    }
+    syncManualFieldsFromPoints();
+    redrawPreview();
+    updatePointsHint();
+  });
+}
 
-document.getElementById("clear-points-btn").addEventListener("click", () => {
-  previewPoints = [];
-  redrawPreview();
-  updatePointsHint();
-});
+const clearPointsBtn = document.getElementById("clear-points-btn");
+if (clearPointsBtn) {
+  clearPointsBtn.addEventListener("click", () => {
+    previewPoints = [];
+    redrawPreview();
+    updatePointsHint();
+  });
+}
 
-document.getElementsByName("config_type")[0].addEventListener("change", () => {
-  previewPoints = []; // point count/meaning differs per type, don't carry over
-  redrawPreview();
-  updatePointsHint();
-});
+const flipDirectionBtn = document.getElementById("flip-direction-btn");
+if (flipDirectionBtn) {
+  flipDirectionBtn.addEventListener("click", () => {
+    if (previewPoints.length !== 2) return;
+    previewPoints = [previewPoints[1], previewPoints[0]];
+    syncManualFieldsFromPoints();
+    redrawPreview();
+  });
+}
 
-document.getElementById("preview-btn").addEventListener("click", async () => {
-  const form = document.getElementById("create-form");
-  const hint = document.getElementById("preview-hint");
-  if (!form.source_uri.value.trim()) {
-    alert("Enter a source URI first.");
-    return;
-  }
-  hint.textContent = "Loading preview…";
-  try {
-    const res = await fetch("/api/sources/snapshot", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: form.source_type.value, uri: form.source_uri.value }),
-    });
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
-    previewImg.onload = () => {
-      canvas.width = data.width;
-      canvas.height = data.height;
-      canvas.style.display = "block";
-      previewReady = true;
-      previewPoints = [];
-      form.frame_width.value = data.width;
-      form.frame_height.value = data.height;
-      redrawPreview();
-      updatePointsHint();
-      hint.textContent = "Preview loaded — click on the image.";
-    };
-    previewImg.src = `data:image/jpeg;base64,${data.image_base64}`;
-  } catch (err) {
-    hint.textContent = `Preview failed: ${err.message}`;
-  }
-});
+const configTypeSelect = document.getElementsByName("config_type")[0];
+if (configTypeSelect) {
+  configTypeSelect.addEventListener("change", () => {
+    previewPoints = []; // point count/meaning differs per type, don't carry over
+    redrawPreview();
+    updatePointsHint();
+  });
+}
+
+const previewBtn = document.getElementById("preview-btn");
+if (previewBtn) {
+  previewBtn.addEventListener("click", async () => {
+    const form = document.getElementById("create-form");
+    const hint = document.getElementById("preview-hint");
+    if (!form.source_uri.value.trim()) {
+      alert("Enter a source URI first.");
+      return;
+    }
+    hint.textContent = "Loading preview…";
+    try {
+      const res = await fetch("/api/sources/snapshot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: form.source_type.value, uri: form.source_uri.value }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      previewImg.onload = () => {
+        canvas.width = data.width;
+        canvas.height = data.height;
+        canvas.style.display = "block";
+        previewReady = true;
+        previewPoints = [];
+        form.frame_width.value = data.width;
+        form.frame_height.value = data.height;
+        redrawPreview();
+        updatePointsHint();
+        hint.textContent = "Preview loaded — click on the image.";
+      };
+      previewImg.src = `data:image/jpeg;base64,${data.image_base64}`;
+    } catch (err) {
+      hint.textContent = `Preview failed: ${err.message}`;
+    }
+  });
+}
 
 function buildConfig(form) {
   const type = form.config_type.value;
@@ -219,9 +294,11 @@ document.getElementById("create-form").addEventListener("submit", async (e) => {
   form.reset();
   previewPoints = [];
   previewReady = false;
-  canvas.style.display = "none";
-  document.getElementById("preview-hint").textContent = "";
-  document.getElementById("upload-hint").textContent = "";
+  if (canvas) canvas.style.display = "none";
+  const previewHint = document.getElementById("preview-hint");
+  const uploadHint = document.getElementById("upload-hint");
+  if (previewHint) previewHint.textContent = "";
+  if (uploadHint) uploadHint.textContent = "";
   updatePointsHint();
   toggleSourceUriMode();
   refreshInstances();
@@ -237,12 +314,31 @@ async function deleteInstance(id) {
   refreshInstances();
 }
 
+// --- Click-to-enlarge live stream -------------------------------------------
+
+function openStreamModal(src) {
+  const modal = document.getElementById("stream-modal");
+  const img = document.getElementById("stream-modal-img");
+  if (!modal || !img) return;
+  img.src = src;
+  modal.style.display = "flex";
+}
+
+const streamModal = document.getElementById("stream-modal");
+if (streamModal) {
+  streamModal.addEventListener("click", () => {
+    streamModal.style.display = "none";
+    document.getElementById("stream-modal-img").src = "";
+  });
+}
+
 function renderInstances(instances) {
   const body = document.getElementById("instances-body");
   body.innerHTML = "";
   for (const inst of instances) {
     const tr = document.createElement("tr");
     const countingLabel = inst.counting ? "counting" : "paused";
+    const streamUrl = `/api/instances/${inst.id}/stream`;
     tr.innerHTML = `
       <td>${inst.name}</td>
       <td>${inst.status}</td>
@@ -251,7 +347,7 @@ function renderInstances(instances) {
       <td>${inst.counts.out_count}</td>
       <td>${inst.counts.current}</td>
       <td>${inst.counts.total}</td>
-      <td><img class="stream" src="/api/instances/${inst.id}/stream" /></td>
+      <td><img class="stream" src="${streamUrl}" title="Click to enlarge" /></td>
       <td>
         <button data-action="start" data-id="${inst.id}" ${inst.counting ? "disabled" : ""}>Start</button>
         <button class="secondary" data-action="stop" data-id="${inst.id}" ${inst.counting ? "" : "disabled"}>Stop</button>
@@ -260,6 +356,9 @@ function renderInstances(instances) {
     `;
     body.appendChild(tr);
   }
+  body.querySelectorAll("img.stream").forEach((img) => {
+    img.addEventListener("click", () => openStreamModal(img.src));
+  });
   body.querySelectorAll("button").forEach((btn) => {
     btn.addEventListener("click", () => {
       const { action, id } = btn.dataset;

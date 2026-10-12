@@ -73,7 +73,25 @@ button.secondary { background: var(--border); color: var(--fg); }
 
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
-img.stream { max-width: 120px; border-radius: 6px; }
+img.stream { max-width: 120px; border-radius: 6px; cursor: zoom-in; transition: transform 0.15s; }
+img.stream:hover { transform: scale(1.05); }
+
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.88);
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  cursor: zoom-out;
+}
+.modal-overlay img {
+  max-width: 95vw;
+  max-height: 95vh;
+  border-radius: 8px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
 
 .preview-row { display: flex; align-items: center; gap: 0.75rem; width: 100%; flex-basis: 100%; }
 .hint { font-size: 0.8rem; opacity: 0.7; }
