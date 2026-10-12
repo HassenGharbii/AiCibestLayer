@@ -35,7 +35,12 @@
           <option value="file">Uploaded file</option>
         </select>
       </label>
-      <label>Source URI <input name="source_uri" placeholder="rtsp://... or file_id" required /></label>
+      <label id="source-uri-label">Source URI <input name="source_uri" placeholder="rtsp://..." required /></label>
+      <div id="file-upload-row" class="preview-row" style="display:none;">
+        <input type="file" id="file-input" accept="video/*" />
+        <button type="button" id="upload-btn">Upload</button>
+        <span id="upload-hint" class="hint"></span>
+      </div>
       <label>Config type
         <select name="config_type">
           <option value="line_crossing">Line crossing</option>

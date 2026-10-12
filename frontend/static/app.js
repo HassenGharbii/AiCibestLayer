@@ -13,6 +13,45 @@ const previewImg = new Image();
 let previewPoints = []; // real pixel coords, in source-frame space
 let previewReady = false;
 
+// --- File upload (source_type = "file") ------------------------------------
+// Backed by tx2's existing POST /api/sources/upload — also already built
+// server-side, just never had a file picker wired up to it before.
+
+const sourceTypeSelect = document.getElementsByName("source_type")[0];
+const fileUploadRow = document.getElementById("file-upload-row");
+const sourceUriInput = document.getElementsByName("source_uri")[0];
+
+function toggleSourceUriMode() {
+  const isFile = sourceTypeSelect.value === "file";
+  fileUploadRow.style.display = isFile ? "flex" : "none";
+  sourceUriInput.readOnly = isFile;
+  sourceUriInput.placeholder = isFile ? "Upload a file below to fill this in…" : "rtsp://...";
+  if (isFile) sourceUriInput.value = "";
+}
+sourceTypeSelect.addEventListener("change", toggleSourceUriMode);
+toggleSourceUriMode();
+
+document.getElementById("upload-btn").addEventListener("click", async () => {
+  const fileInput = document.getElementById("file-input");
+  const hint = document.getElementById("upload-hint");
+  if (!fileInput.files.length) {
+    alert("Choose a file first.");
+    return;
+  }
+  const body = new FormData();
+  body.append("file", fileInput.files[0]);
+  hint.textContent = "Uploading…";
+  try {
+    const res = await fetch("/api/sources/upload", { method: "POST", body });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    sourceUriInput.value = data.file_id;
+    hint.textContent = `Uploaded: ${data.filename}`;
+  } catch (err) {
+    hint.textContent = `Upload failed: ${err.message}`;
+  }
+});
+
 function point(pair) {
   const [x, y] = pair.split(",").map((v) => parseFloat(v.trim()));
   return { x, y };
@@ -182,7 +221,9 @@ document.getElementById("create-form").addEventListener("submit", async (e) => {
   previewReady = false;
   canvas.style.display = "none";
   document.getElementById("preview-hint").textContent = "";
+  document.getElementById("upload-hint").textContent = "";
   updatePointsHint();
+  toggleSourceUriMode();
   refreshInstances();
 });
 
