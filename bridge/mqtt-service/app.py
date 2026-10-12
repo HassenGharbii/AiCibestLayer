@@ -183,10 +183,12 @@ def sync_all_instances(active):
         inst_id = inst.get("id")
         url = TX2_URL + "/api/instances/" + inst_id + "/" + action
         try:
-            requests.post(url, timeout=5)
+            resp = requests.post(url, timeout=5)
+            resp.raise_for_status()
             log.info("tx2 instance %s: %s (active=%s)", inst_id, action.upper(), active)
         except requests.RequestException as exc:
-            log.warning("tx2 trigger call failed for instance %s: %s", inst_id, exc)
+            body = getattr(exc.response, "text", "")
+            log.warning("tx2 trigger call failed for instance %s: %s %s", inst_id, exc, body[:200])
 
 
 def periodic_instance_sync_loop():

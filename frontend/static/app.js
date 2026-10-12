@@ -1,31 +1,163 @@
 const INSTANCES_POLL_MS = 2000;
 const TRAIN_POLL_MS = 1000;
+const MAX_ZONE_POINTS = 12;
+
+// --- Source preview + click-to-draw line/zone ------------------------------
+// Backed by tx2's existing POST /api/sources/snapshot (grabs one frame from
+// the RTSP/file source) — this was already built server-side, just never
+// wired up to a UI before.
+
+const canvas = document.getElementById("preview-canvas");
+const ctx = canvas.getContext("2d");
+const previewImg = new Image();
+let previewPoints = []; // real pixel coords, in source-frame space
+let previewReady = false;
 
 function point(pair) {
   const [x, y] = pair.split(",").map((v) => parseFloat(v.trim()));
   return { x, y };
 }
 
+function pointsLabel(p) {
+  return `${Math.round(p.x)},${Math.round(p.y)}`;
+}
+
+function redrawPreview() {
+  if (!previewReady) return;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(previewImg, 0, 0, canvas.width, canvas.height);
+
+  const type = document.getElementsByName("config_type")[0].value;
+  const closeLoop = type === "zone_occupancy" && previewPoints.length >= 3;
+
+  ctx.strokeStyle = "#e0333f";
+  ctx.fillStyle = "#e0333f";
+  ctx.lineWidth = Math.max(2, canvas.width / 320);
+
+  if (previewPoints.length > 1) {
+    ctx.beginPath();
+    ctx.moveTo(previewPoints[0].x, previewPoints[0].y);
+    for (let i = 1; i < previewPoints.length; i++) ctx.lineTo(previewPoints[i].x, previewPoints[i].y);
+    if (closeLoop) ctx.lineTo(previewPoints[0].x, previewPoints[0].y);
+    ctx.stroke();
+  }
+  const r = Math.max(4, canvas.width / 160);
+  previewPoints.forEach((p) => {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
+
+function updatePointsHint() {
+  const type = document.getElementsByName("config_type")[0].value;
+  const hint = document.getElementById("points-hint");
+  const clearBtn = document.getElementById("clear-points-btn");
+  clearBtn.style.display = previewPoints.length ? "inline-block" : "none";
+  if (!previewReady) {
+    hint.textContent = "";
+    return;
+  }
+  if (type === "zone_occupancy") {
+    hint.textContent = previewPoints.length < 3
+      ? `Click ${3 - previewPoints.length} more point(s) to close the zone (${previewPoints.length} so far).`
+      : `Zone set — ${previewPoints.length} points. Click again to add more, or Create.`;
+  } else {
+    hint.textContent = previewPoints.length < 2
+      ? "Click the two endpoints of the counting line."
+      : "Line set — click again to redraw it from scratch.";
+  }
+}
+
+function syncManualFieldsFromPoints() {
+  const form = document.getElementById("create-form");
+  const type = form.config_type.value;
+  if (type !== "zone_occupancy" && previewPoints.length >= 2) {
+    form.p1.value = pointsLabel(previewPoints[0]);
+    form.p2.value = pointsLabel(previewPoints[1]);
+  }
+}
+
+canvas.addEventListener("click", (e) => {
+  if (!previewReady) return;
+  const rect = canvas.getBoundingClientRect();
+  const x = ((e.clientX - rect.left) / rect.width) * canvas.width;
+  const y = ((e.clientY - rect.top) / rect.height) * canvas.height;
+  const type = document.getElementsByName("config_type")[0].value;
+
+  if (type === "zone_occupancy") {
+    if (previewPoints.length >= MAX_ZONE_POINTS) previewPoints = [];
+    previewPoints.push({ x, y });
+  } else {
+    // Line types only ever need 2 points — a 3rd click starts a fresh line.
+    if (previewPoints.length >= 2) previewPoints = [];
+    previewPoints.push({ x, y });
+  }
+  syncManualFieldsFromPoints();
+  redrawPreview();
+  updatePointsHint();
+});
+
+document.getElementById("clear-points-btn").addEventListener("click", () => {
+  previewPoints = [];
+  redrawPreview();
+  updatePointsHint();
+});
+
+document.getElementsByName("config_type")[0].addEventListener("change", () => {
+  previewPoints = []; // point count/meaning differs per type, don't carry over
+  redrawPreview();
+  updatePointsHint();
+});
+
+document.getElementById("preview-btn").addEventListener("click", async () => {
+  const form = document.getElementById("create-form");
+  const hint = document.getElementById("preview-hint");
+  if (!form.source_uri.value.trim()) {
+    alert("Enter a source URI first.");
+    return;
+  }
+  hint.textContent = "Loading preview…";
+  try {
+    const res = await fetch("/api/sources/snapshot", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: form.source_type.value, uri: form.source_uri.value }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    previewImg.onload = () => {
+      canvas.width = data.width;
+      canvas.height = data.height;
+      canvas.style.display = "block";
+      previewReady = true;
+      previewPoints = [];
+      form.frame_width.value = data.width;
+      form.frame_height.value = data.height;
+      redrawPreview();
+      updatePointsHint();
+      hint.textContent = "Preview loaded — click on the image.";
+    };
+    previewImg.src = `data:image/jpeg;base64,${data.image_base64}`;
+  } catch (err) {
+    hint.textContent = `Preview failed: ${err.message}`;
+  }
+});
+
 function buildConfig(form) {
   const type = form.config_type.value;
   const frame_width = parseInt(form.frame_width.value, 10);
   const frame_height = parseInt(form.frame_height.value, 10);
   if (type === "zone_occupancy") {
-    // Reuses the line's two points as a minimal 3+ point polygon fallback.
-    return {
-      type,
-      points: [point(form.p1.value), point(form.p2.value), { x: frame_width / 2, y: frame_height }],
-      frame_width,
-      frame_height,
-    };
+    const pts = previewPoints.length >= 3
+      ? previewPoints
+      : [point(form.p1.value), point(form.p2.value), { x: frame_width / 2, y: frame_height }];
+    return { type, points: pts, frame_width, frame_height };
   }
-  return {
-    type,
-    p1: point(form.p1.value),
-    p2: point(form.p2.value),
-    frame_width,
-    frame_height,
-  };
+  const [p1, p2] = previewPoints.length >= 2
+    ? previewPoints
+    : [point(form.p1.value), point(form.p2.value)];
+  return { type, p1, p2, frame_width, frame_height };
 }
 
 document.getElementById("create-form").addEventListener("submit", async (e) => {
@@ -46,6 +178,11 @@ document.getElementById("create-form").addEventListener("submit", async (e) => {
     return;
   }
   form.reset();
+  previewPoints = [];
+  previewReady = false;
+  canvas.style.display = "none";
+  document.getElementById("preview-hint").textContent = "";
+  updatePointsHint();
   refreshInstances();
 });
 

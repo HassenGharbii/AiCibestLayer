@@ -43,6 +43,15 @@
           <option value="vehicle_counting">Vehicle counting</option>
         </select>
       </label>
+
+      <div class="preview-row">
+        <button type="button" id="preview-btn">Load preview from source</button>
+        <span id="preview-hint" class="hint">Loads one frame, then click on the image to draw the line/zone.</span>
+      </div>
+      <canvas id="preview-canvas"></canvas>
+      <div id="points-hint" class="hint"></div>
+      <button type="button" id="clear-points-btn" class="secondary" style="display:none;">Clear points</button>
+
       <fieldset id="line-fields">
         <label>P1 x,y <input name="p1" value="0,240" /></label>
         <label>P2 x,y <input name="p2" value="640,240" /></label>
